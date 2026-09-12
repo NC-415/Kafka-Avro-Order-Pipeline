@@ -1,0 +1,23 @@
+{
+  "type": "record",
+  "name": "Order",
+  "namespace": "com.assignment.orders",
+  "doc": "A single order event. price is float (binary32) as per the assignment brief — see README §2 for the known precision defect and the production fix.",
+  "fields": [
+    {
+      "name": "orderId",
+      "type": "string",
+      "doc": "Unique order identifier. Also used as the Kafka message key to preserve per-order ordering within a partition."
+    },
+    {
+      "name": "product",
+      "type": "string",
+      "doc": "Product name. Used as the aggregation grouping key in the consumer."
+    },
+    {
+      "name": "price",
+      "type": "float",
+      "doc": "Unit price. IEEE-754 binary32 (~7 significant decimal digits). The correct production type would be bytes+decimal(precision=12,scale=2) or long cents."
+    }
+  ]
+}

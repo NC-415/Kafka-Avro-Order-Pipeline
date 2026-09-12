@@ -1,0 +1,12 @@
+# Core Kafka client with Avro / Schema Registry support
+# Requires librdkafka; prebuilt wheels available for Python 3.9–3.13+
+confluent-kafka[avro]>=2.6.0
+
+# Fast Avro encoder used for the poison-pill injection path (raw non-magic bytes)
+fastavro>=1.9.0
+
+# python-dotenv for loading .env files
+python-dotenv>=1.0.0
+
+# Test runner
+pytest>=8.0.0

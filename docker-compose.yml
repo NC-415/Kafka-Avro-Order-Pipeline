@@ -1,0 +1,131 @@
+---
+# Kafka (KRaft — no ZooKeeper) + Schema Registry + Kafka UI + topic init
+#
+# KRaft removes the ZooKeeper dependency introduced in Kafka 3.3 and made
+# the only mode in Kafka 3.7+. Reference: https://developer.confluent.io/learn/kraft/
+#
+# Auto-creation is disabled so partition counts are always explicit.
+# Topics are created by the one-shot `init-topics` service.
+
+services:
+
+  # ── Kafka (KRaft, single-broker) ─────────────────────────────────────────────
+  kafka:
+    image: confluentinc/cp-kafka:7.7.0
+    hostname: kafka
+    container_name: kafka
+    ports:
+      - "9092:9092"     # for clients on the host
+      - "9093:9093"     # KRaft controller port (internal)
+    environment:
+      # KRaft settings
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:9093"
+      KAFKA_LISTENERS: "PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093"
+      KAFKA_ADVERTISED_LISTENERS: "PLAINTEXT://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "PLAINTEXT:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "PLAINTEXT"
+
+      # Single-broker / laptop settings (RF=1 everywhere)
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+
+      # Never create topics automatically — partition counts must be explicit
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+
+      # Log segment settings
+      KAFKA_LOG_RETENTION_HOURS: 168          # 7 days (default)
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824
+
+      # Cluster ID (must be a valid base64-encoded UUID for KRaft)
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qw"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD", "kafka-broker-api-versions", "--bootstrap-server", "localhost:9092"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ── Schema Registry ───────────────────────────────────────────────────────────
+  schema-registry:
+    image: confluentinc/cp-schema-registry:7.7.0
+    hostname: schema-registry
+    container_name: schema-registry
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "8081:8081"
+    environment:
+      SCHEMA_REGISTRY_HOST_NAME: schema-registry
+      SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS: "kafka:9092"
+      SCHEMA_REGISTRY_LISTENERS: "http://0.0.0.0:8081"
+      # BACKWARD compatibility: new schema must be readable by consumers on
+      # the old schema. Safe default when consumers lag behind producers.
+      # Reference: https://docs.confluent.io/platform/current/schema-registry/fundamentals/schema-evolution.html
+      SCHEMA_REGISTRY_SCHEMA_COMPATIBILITY_LEVEL: BACKWARD
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/subjects"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ── Topic initialisation (one-shot) ──────────────────────────────────────────
+  # Creates both topics with explicit partition counts and retention policies.
+  # Exits 0 when done so Docker Compose marks it as completed.
+  init-topics:
+    image: confluentinc/cp-kafka:7.7.0
+    container_name: init-topics
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        echo "Creating topic: orders (3 partitions, RF=1, 7-day retention)"
+        kafka-topics --bootstrap-server kafka:9092 --create \
+          --if-not-exists \
+          --topic orders \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=604800000
+
+        echo "Creating topic: orders.DLQ (3 partitions, RF=1, 14-day retention)"
+        kafka-topics --bootstrap-server kafka:9092 --create \
+          --if-not-exists \
+          --topic orders.DLQ \
+          --partitions 3 \
+          --replication-factor 1 \
+          --config retention.ms=1209600000
+
+        echo "Topics created:"
+        kafka-topics --bootstrap-server kafka:9092 --list
+
+  # ── Kafka UI ──────────────────────────────────────────────────────────────────
+  # Browse topics, consumer-group lag, schema registry at http://localhost:8080
+  kafka-ui:
+    image: provectuslabs/kafka-ui:latest
+    container_name: kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+      schema-registry:
+        condition: service_healthy
+    ports:
+      - "8080:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: local
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: kafka:9092
+      KAFKA_CLUSTERS_0_SCHEMAREGISTRY: http://schema-registry:8081
+      DYNAMIC_CONFIG_ENABLED: "true"
+
+volumes:
+  kafka-data:
