@@ -50,23 +50,44 @@ _ws_clients: set[WebSocket] = set()
 _event_lock = threading.Lock()
 
 
+import urllib.request
+
 def push_event(event: dict) -> None:
     """
     Called by consumer.py to push a processing event to the dashboard.
-
-    Thread-safe. Non-blocking. If no dashboard is running, this is a no-op
-    (the deque just accumulates in memory until maxlen evicts old entries).
     """
     event.setdefault("timestamp", datetime.now(timezone.utc).isoformat())
-    with _event_lock:
-        _event_log.append(event)
-    # Schedule broadcast to WebSocket clients (fire-and-forget)
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
+            with _event_lock:
+                _event_log.append(event)
             loop.create_task(_broadcast(event))
+            return
     except RuntimeError:
-        pass  # no event loop — dashboard not running, ignore
+        pass
+
+    try:
+        req = urllib.request.Request(
+            f"http://localhost:{DASHBOARD_PORT}/api/internal/event",
+            data=json.dumps(event).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        urllib.request.urlopen(req, timeout=1.0)
+    except Exception:
+        pass
+
+def push_stats(summary: dict) -> None:
+    """Forward stats summary over HTTP to dashboard."""
+    try:
+        req = urllib.request.Request(
+            f"http://localhost:{DASHBOARD_PORT}/api/internal/stats",
+            data=json.dumps(summary).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}
+        )
+        urllib.request.urlopen(req, timeout=1.0)
+    except Exception:
+        pass
 
 
 async def _broadcast(event: dict) -> None:
@@ -313,6 +334,28 @@ async def api_events():
     with _event_lock:
         events = list(_event_log)
     return JSONResponse({"count": len(events), "events": events})
+
+
+from fastapi import Request
+
+@app.post("/api/internal/event")
+async def api_internal_event(request: Request):
+    """Receive event from a separate consumer process."""
+    event = await request.json()
+    with _event_lock:
+        _event_log.append(event)
+    await _broadcast(event)
+    return {"status": "ok"}
+
+@app.post("/api/internal/stats")
+async def api_internal_stats(request: Request):
+    """Receive stats summary from a separate consumer process."""
+    summary = await request.json()
+    class MockStats:
+        def summary(self): return summary
+    global _stats_ref
+    _stats_ref = MockStats()
+    return {"status": "ok"}
 
 
 @app.websocket("/ws")

@@ -376,6 +376,8 @@ Open **Terminal 5** and run the producer with a fixed seed and fault injection:
 3. **Inspect the Dead Letter Queue (DLQ):** Once finished, in Terminal 5 run:
    ```cmd
    make dlq
+   .\run-dlq.bat
+
    ```
    *(Or click "Load DLQ Records" in the web dashboard to see exactly why messages failed, along with their headers and decoded payloads).*
 
@@ -396,6 +398,9 @@ run — no live-demo roulette.
   deserialization failure path → DLQ.
 - `SINK_FAILURE_RATE` (env, default 0.25) → probability the simulated downstream
   raises `TransientError`. Exercises the retry path.
+
+
+.\record-demo.bat
 
 ---
 

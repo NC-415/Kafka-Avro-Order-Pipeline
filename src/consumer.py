@@ -55,7 +55,7 @@ import src.config as cfg
 from src.errors import PermanentError, RetriesExhausted, TransientError
 from src.stats import Stats
 from src.utils import backoff_delay, validate
-from src.dashboard import push_event, set_stats_ref
+from src.dashboard import push_event, set_stats_ref, push_stats
 
 
 # ── Simulated downstream sink ─────────────────────────────────────────────────
@@ -277,6 +277,8 @@ def run() -> None:
                 processed += 1
             else:
                 dead_lettered += 1
+
+            push_stats(stats.summary())
 
             # ── Stage 5: Commit offset ────────────────────────────────────────
             # Only reached after the record is aggregated *or* after the DLQ
