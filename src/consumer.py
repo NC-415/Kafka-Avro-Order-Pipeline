@@ -39,6 +39,7 @@ Usage
 
 from __future__ import annotations
 
+import random
 import signal
 import sys
 import time
@@ -54,6 +55,7 @@ import src.config as cfg
 from src.errors import PermanentError, RetriesExhausted, TransientError
 from src.stats import Stats
 from src.utils import backoff_delay, validate
+from src.dashboard import push_event, set_stats_ref
 
 
 # ── Simulated downstream sink ─────────────────────────────────────────────────
@@ -155,6 +157,7 @@ def process_message(
     except Exception as exc:
         print(f"  [DLQ] deserialize  key={original_key[:16]}…  {exc!r}")
         send_to_dlq(dlq_producer, msg, "deserialize", PermanentError(str(exc)), 1)
+        push_event({"type": "dlq", "stage": "deserialize", "key": original_key, "attempts": 1, "error": str(exc)})
         return "dlq", 1
 
     # ── Stage 2: Validate ─────────────────────────────────────────────────────
@@ -163,6 +166,7 @@ def process_message(
     except PermanentError as exc:
         print(f"  [DLQ] validate     key={original_key[:16]}…  {exc}")
         send_to_dlq(dlq_producer, msg, "validate", exc, 1)
+        push_event({"type": "dlq", "stage": "validate", "key": original_key, "attempts": 1, "error": str(exc)})
         return "dlq", 1
 
     # ── Stage 3: Sink (with retry) ────────────────────────────────────────────
@@ -181,6 +185,7 @@ def process_message(
                     f"key={original_key[:16]}…  "
                     f"sleeping {delay:.2f}s  {exc}"
                 )
+                push_event({"type": "retry", "attempt": attempt, "max_retries": cfg.MAX_ATTEMPTS - 1, "key": original_key, "delay": delay, "error": str(exc)})
                 time.sleep(delay)
             else:
                 exhausted = RetriesExhausted(exc, attempt)
@@ -189,6 +194,7 @@ def process_message(
                     f"attempts={attempt}  {exc}"
                 )
                 send_to_dlq(dlq_producer, msg, "sink", exhausted, attempt)
+                push_event({"type": "dlq", "stage": "sink", "key": original_key, "attempts": attempt, "error": str(exc)})
                 return "dlq", attempt
 
     # ── Stage 4: Aggregate ────────────────────────────────────────────────────
@@ -199,6 +205,14 @@ def process_message(
         f"price={order['price']:>8.2f}  "
         f"global_mean={stats.global_mean:>8.4f}  n={stats.global_count}"
     )
+    push_event({
+        "type": "ok",
+        "key": original_key,
+        "product": order["product"],
+        "price": order["price"],
+        "global_mean": stats.global_mean,
+        "global_count": stats.global_count,
+    })
     return "ok", 1
 
 
@@ -223,6 +237,7 @@ def run() -> None:
     dlq_producer = Producer(dlq_conf)
 
     stats = Stats()
+    set_stats_ref(stats)  # share with dashboard for /api/stats
     processed = dead_lettered = 0
 
     print(f"Consumer group : {cfg.CONSUMER_GROUP}")

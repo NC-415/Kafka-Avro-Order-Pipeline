@@ -1,0 +1,1032 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Real-time monitoring dashboard for the Kafka + Avro Order Pipeline">
+    <title>Kafka Order Pipeline — Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+    <style>
+        /* ── Reset & Variables ─────────────────────────────────────────── */
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        :root {
+            --bg-primary: #0a0e17;
+            --bg-secondary: #111827;
+            --bg-card: rgba(17, 24, 39, 0.7);
+            --bg-card-hover: rgba(17, 24, 39, 0.9);
+            --border-subtle: rgba(99, 102, 241, 0.15);
+            --border-glow: rgba(99, 102, 241, 0.4);
+
+            --text-primary: #f1f5f9;
+            --text-secondary: #94a3b8;
+            --text-muted: #64748b;
+
+            --accent-indigo: #818cf8;
+            --accent-violet: #a78bfa;
+            --accent-emerald: #34d399;
+            --accent-amber: #fbbf24;
+            --accent-rose: #fb7185;
+            --accent-sky: #38bdf8;
+
+            --gradient-hero: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --gradient-success: linear-gradient(135deg, #10b981 0%, #34d399 100%);
+            --gradient-danger: linear-gradient(135deg, #ef4444 0%, #f87171 100%);
+            --gradient-warning: linear-gradient(135deg, #f59e0b 0%, #fbbf24 100%);
+
+            --shadow-card: 0 4px 24px rgba(0, 0, 0, 0.3);
+            --shadow-glow: 0 0 20px rgba(99, 102, 241, 0.15);
+
+            --radius: 16px;
+            --radius-sm: 8px;
+            --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+            --transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        body {
+            font-family: var(--font-sans);
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            min-height: 100vh;
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* ── Animated background ──────────────────────────────────────── */
+        body::before {
+            content: '';
+            position: fixed;
+            top: -50%;
+            left: -50%;
+            width: 200%;
+            height: 200%;
+            background: radial-gradient(ellipse at 20% 50%, rgba(99, 102, 241, 0.08) 0%, transparent 50%),
+                        radial-gradient(ellipse at 80% 20%, rgba(168, 85, 247, 0.06) 0%, transparent 50%),
+                        radial-gradient(ellipse at 50% 80%, rgba(52, 211, 153, 0.04) 0%, transparent 50%);
+            animation: bgFloat 20s ease-in-out infinite;
+            pointer-events: none;
+            z-index: 0;
+        }
+
+        @keyframes bgFloat {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            33% { transform: translate(2%, -2%) rotate(1deg); }
+            66% { transform: translate(-1%, 1%) rotate(-0.5deg); }
+        }
+
+        /* ── Header ───────────────────────────────────────────────────── */
+        header {
+            position: relative;
+            z-index: 10;
+            padding: 24px 32px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid var(--border-subtle);
+            backdrop-filter: blur(12px);
+            background: rgba(10, 14, 23, 0.8);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-hero);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 20px;
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
+        }
+
+        .logo h1 {
+            font-size: 20px;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--accent-indigo), var(--accent-violet));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .logo p {
+            font-size: 12px;
+            color: var(--text-muted);
+            font-weight: 400;
+        }
+
+        .connection-status {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-secondary);
+            padding: 8px 16px;
+            border-radius: 24px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid var(--border-subtle);
+        }
+
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: var(--accent-rose);
+            transition: background var(--transition);
+        }
+
+        .status-dot.connected {
+            background: var(--accent-emerald);
+            box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+            animation: pulse 2s ease-in-out infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+
+        /* ── Main layout ──────────────────────────────────────────────── */
+        main {
+            position: relative;
+            z-index: 10;
+            max-width: 1440px;
+            margin: 0 auto;
+            padding: 24px 32px;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+        }
+
+        /* ── Card base ────────────────────────────────────────────────── */
+        .card {
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: var(--radius);
+            backdrop-filter: blur(12px);
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+            transition: border-color var(--transition), box-shadow var(--transition);
+        }
+
+        .card:hover {
+            border-color: var(--border-glow);
+            box-shadow: var(--shadow-card), var(--shadow-glow);
+        }
+
+        .card-header {
+            padding: 16px 20px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+        }
+
+        .card-title {
+            font-size: 13px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            color: var(--text-secondary);
+        }
+
+        .card-badge {
+            font-size: 11px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+
+        .card-body {
+            padding: 20px;
+        }
+
+        /* ── Stat cards (top row) ─────────────────────────────────────── */
+        .stat-card .card-body {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .stat-value {
+            font-size: 32px;
+            font-weight: 700;
+            font-family: var(--font-mono);
+            line-height: 1.2;
+        }
+
+        .stat-value.indigo { color: var(--accent-indigo); }
+        .stat-value.emerald { color: var(--accent-emerald); }
+        .stat-value.rose { color: var(--accent-rose); }
+        .stat-value.amber { color: var(--accent-amber); }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .stat-sub {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+            margin-top: 4px;
+        }
+
+        /* ── Live feed (spans 2 cols, 2 rows) ─────────────────────────── */
+        .feed-card {
+            grid-column: span 2;
+            grid-row: span 2;
+            display: flex;
+            flex-direction: column;
+            max-height: 520px;
+        }
+
+        .feed-card .card-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 8px 12px;
+        }
+
+        .feed-card .card-body::-webkit-scrollbar {
+            width: 4px;
+        }
+
+        .feed-card .card-body::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 2px;
+        }
+
+        .feed-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 10px;
+            padding: 8px 10px;
+            border-radius: var(--radius-sm);
+            margin-bottom: 4px;
+            font-size: 12.5px;
+            transition: background var(--transition);
+            animation: feedSlideIn 0.3s ease-out;
+        }
+
+        @keyframes feedSlideIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .feed-item:hover {
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .feed-icon {
+            flex-shrink: 0;
+            width: 24px;
+            height: 24px;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            margin-top: 2px;
+        }
+
+        .feed-icon.ok { background: rgba(52, 211, 153, 0.15); color: var(--accent-emerald); }
+        .feed-icon.retry { background: rgba(251, 191, 36, 0.15); color: var(--accent-amber); }
+        .feed-icon.dlq { background: rgba(251, 113, 133, 0.15); color: var(--accent-rose); }
+
+        .feed-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .feed-main {
+            font-family: var(--font-mono);
+            color: var(--text-primary);
+            word-break: break-all;
+        }
+
+        .feed-detail {
+            color: var(--text-muted);
+            font-size: 11px;
+            margin-top: 2px;
+        }
+
+        .feed-time {
+            flex-shrink: 0;
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        /* ── Aggregation table ────────────────────────────────────────── */
+        .agg-card {
+            grid-column: span 2;
+        }
+
+        .agg-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 12.5px;
+        }
+
+        .agg-table th {
+            text-align: left;
+            padding: 8px 12px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .agg-table td {
+            padding: 8px 12px;
+            color: var(--text-primary);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+            font-family: var(--font-mono);
+            font-size: 12px;
+        }
+
+        .agg-table tr:hover td {
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .agg-table .global-row td {
+            font-weight: 600;
+            color: var(--accent-indigo);
+            border-bottom: 2px solid rgba(99, 102, 241, 0.2);
+        }
+
+        /* ── DLQ Inspector ────────────────────────────────────────────── */
+        .dlq-card {
+            grid-column: span 4;
+        }
+
+        .dlq-record {
+            padding: 12px 16px;
+            border-radius: var(--radius-sm);
+            background: rgba(251, 113, 133, 0.04);
+            border: 1px solid rgba(251, 113, 133, 0.1);
+            margin-bottom: 8px;
+            font-size: 12px;
+            transition: border-color var(--transition);
+        }
+
+        .dlq-record:hover {
+            border-color: rgba(251, 113, 133, 0.3);
+        }
+
+        .dlq-record-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .dlq-record-id {
+            font-family: var(--font-mono);
+            font-weight: 600;
+            color: var(--accent-rose);
+        }
+
+        .dlq-stage {
+            padding: 2px 8px;
+            border-radius: 8px;
+            font-size: 11px;
+            font-weight: 500;
+            background: rgba(251, 113, 133, 0.15);
+            color: var(--accent-rose);
+        }
+
+        .dlq-detail {
+            display: grid;
+            grid-template-columns: 140px 1fr;
+            gap: 2px 12px;
+            font-family: var(--font-mono);
+            font-size: 11.5px;
+        }
+
+        .dlq-detail dt {
+            color: var(--text-muted);
+        }
+
+        .dlq-detail dd {
+            color: var(--text-secondary);
+            word-break: break-all;
+        }
+
+        /* ── Pipeline flow visual ─────────────────────────────────────── */
+        .pipeline-card {
+            grid-column: span 4;
+        }
+
+        .pipeline-flow {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0;
+            padding: 20px 0;
+            flex-wrap: wrap;
+        }
+
+        .pipeline-node {
+            padding: 12px 20px;
+            border-radius: 12px;
+            font-size: 13px;
+            font-weight: 600;
+            text-align: center;
+            min-width: 120px;
+            position: relative;
+            transition: all var(--transition);
+        }
+
+        .pipeline-node.producer {
+            background: rgba(99, 102, 241, 0.12);
+            border: 1px solid rgba(99, 102, 241, 0.3);
+            color: var(--accent-indigo);
+        }
+
+        .pipeline-node.kafka {
+            background: rgba(56, 189, 248, 0.12);
+            border: 1px solid rgba(56, 189, 248, 0.3);
+            color: var(--accent-sky);
+        }
+
+        .pipeline-node.consumer-node {
+            background: rgba(52, 211, 153, 0.12);
+            border: 1px solid rgba(52, 211, 153, 0.3);
+            color: var(--accent-emerald);
+        }
+
+        .pipeline-node.dlq-node {
+            background: rgba(251, 113, 133, 0.12);
+            border: 1px solid rgba(251, 113, 133, 0.3);
+            color: var(--accent-rose);
+        }
+
+        .pipeline-node.stats-node {
+            background: rgba(251, 191, 36, 0.12);
+            border: 1px solid rgba(251, 191, 36, 0.3);
+            color: var(--accent-amber);
+        }
+
+        .pipeline-node .node-count {
+            font-family: var(--font-mono);
+            font-size: 18px;
+            font-weight: 700;
+            display: block;
+            margin-top: 4px;
+        }
+
+        .pipeline-arrow {
+            color: var(--text-muted);
+            font-size: 20px;
+            padding: 0 8px;
+            opacity: 0.5;
+        }
+
+        /* ── Consumer lag bars ─────────────────────────────────────────── */
+        .lag-card {
+            grid-column: span 2;
+        }
+
+        .lag-bar-container {
+            margin-bottom: 12px;
+        }
+
+        .lag-bar-label {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 4px;
+        }
+
+        .lag-bar-label span:first-child {
+            color: var(--text-secondary);
+            font-family: var(--font-mono);
+        }
+
+        .lag-bar-label span:last-child {
+            color: var(--text-muted);
+            font-family: var(--font-mono);
+        }
+
+        .lag-bar-bg {
+            height: 6px;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 3px;
+            overflow: hidden;
+        }
+
+        .lag-bar-fill {
+            height: 100%;
+            background: var(--gradient-hero);
+            border-radius: 3px;
+            transition: width 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        /* ── Buttons ──────────────────────────────────────────────────── */
+        .btn {
+            padding: 6px 14px;
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border-subtle);
+            background: rgba(255, 255, 255, 0.04);
+            color: var(--text-secondary);
+            font-size: 12px;
+            font-weight: 500;
+            cursor: pointer;
+            transition: all var(--transition);
+            font-family: var(--font-sans);
+        }
+
+        .btn:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: var(--border-glow);
+            color: var(--text-primary);
+        }
+
+        /* ── Empty state ──────────────────────────────────────────────── */
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-muted);
+            font-size: 13px;
+        }
+
+        .empty-state .empty-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+            opacity: 0.4;
+        }
+
+        /* ── Responsive ───────────────────────────────────────────────── */
+        @media (max-width: 1024px) {
+            main { grid-template-columns: repeat(2, 1fr); padding: 16px; }
+            .feed-card, .agg-card, .dlq-card, .pipeline-card, .lag-card { grid-column: span 2; }
+        }
+
+        @media (max-width: 640px) {
+            main { grid-template-columns: 1fr; }
+            .feed-card, .agg-card, .dlq-card, .pipeline-card, .lag-card { grid-column: span 1; }
+            header { padding: 16px; flex-wrap: wrap; gap: 12px; }
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div class="logo">
+        <div class="logo-icon">⚡</div>
+        <div>
+            <h1>Kafka Order Pipeline</h1>
+            <p>Real-time monitoring dashboard</p>
+        </div>
+    </div>
+    <div class="connection-status">
+        <div class="status-dot" id="ws-status"></div>
+        <span id="ws-label">Disconnected</span>
+    </div>
+</header>
+
+<main>
+    <!-- ── Pipeline Flow ─────────────────────────────────────── -->
+    <div class="card pipeline-card">
+        <div class="card-header">
+            <span class="card-title">Pipeline Overview</span>
+            <button class="btn" onclick="refreshAll()">↻ Refresh</button>
+        </div>
+        <div class="card-body">
+            <div class="pipeline-flow">
+                <div class="pipeline-node producer">
+                    Producer
+                    <span class="node-count" id="pipeline-produced">—</span>
+                </div>
+                <span class="pipeline-arrow">→</span>
+                <div class="pipeline-node kafka">
+                    orders
+                    <span class="node-count" id="pipeline-topic">—</span>
+                </div>
+                <span class="pipeline-arrow">→</span>
+                <div class="pipeline-node consumer-node">
+                    Consumer
+                    <span class="node-count" id="pipeline-consumed">—</span>
+                </div>
+                <span class="pipeline-arrow">→</span>
+                <div class="pipeline-node stats-node">
+                    Aggregation
+                    <span class="node-count" id="pipeline-agg">—</span>
+                </div>
+                <span class="pipeline-arrow" style="opacity: 0.3">↘</span>
+                <div class="pipeline-node dlq-node">
+                    orders.DLQ
+                    <span class="node-count" id="pipeline-dlq">—</span>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Stat cards ────────────────────────────────────────── -->
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Total Processed</span></div>
+        <div class="card-body">
+            <div class="stat-value emerald" id="stat-processed">0</div>
+            <div class="stat-label">Successfully aggregated</div>
+        </div>
+    </div>
+
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Dead Lettered</span></div>
+        <div class="card-body">
+            <div class="stat-value rose" id="stat-dlq">0</div>
+            <div class="stat-label">Sent to DLQ</div>
+        </div>
+    </div>
+
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Global Average</span></div>
+        <div class="card-body">
+            <div class="stat-value indigo" id="stat-mean">—</div>
+            <div class="stat-sub" id="stat-range"></div>
+        </div>
+    </div>
+
+    <div class="card stat-card">
+        <div class="card-header"><span class="card-title">Retries</span></div>
+        <div class="card-body">
+            <div class="stat-value amber" id="stat-retries">0</div>
+            <div class="stat-label">Retry attempts</div>
+        </div>
+    </div>
+
+    <!-- ── Live Feed ─────────────────────────────────────────── -->
+    <div class="card feed-card">
+        <div class="card-header">
+            <span class="card-title">Live Message Feed</span>
+            <span class="card-badge" style="color: var(--accent-emerald); background: rgba(52,211,153,0.1);" id="feed-count">0 events</span>
+        </div>
+        <div class="card-body" id="feed-container">
+            <div class="empty-state">
+                <div class="empty-icon">📡</div>
+                <p>Waiting for messages…<br>Start the consumer and producer to see live activity.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Consumer Lag ──────────────────────────────────────── -->
+    <div class="card lag-card">
+        <div class="card-header">
+            <span class="card-title">Consumer Lag</span>
+            <span class="card-badge" style="color: var(--accent-sky); background: rgba(56,189,248,0.1);" id="lag-total">lag: —</span>
+        </div>
+        <div class="card-body" id="lag-container">
+            <div class="empty-state">
+                <div class="empty-icon">📊</div>
+                <p>Loading lag data…</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Aggregation Table ─────────────────────────────────── -->
+    <div class="card agg-card">
+        <div class="card-header">
+            <span class="card-title">Aggregation — Per Product</span>
+            <button class="btn" onclick="fetchStats()">↻ Refresh</button>
+        </div>
+        <div class="card-body" id="agg-container">
+            <div class="empty-state">
+                <div class="empty-icon">📈</div>
+                <p>No aggregation data yet.<br>Process some orders to see stats.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── DLQ Inspector ─────────────────────────────────────── -->
+    <div class="card dlq-card">
+        <div class="card-header">
+            <span class="card-title">Dead Letter Queue Inspector</span>
+            <button class="btn" onclick="fetchDLQ()">↻ Load DLQ Records</button>
+        </div>
+        <div class="card-body" id="dlq-container">
+            <div class="empty-state">
+                <div class="empty-icon">💀</div>
+                <p>Click "Load DLQ Records" to inspect dead-lettered messages.</p>
+            </div>
+        </div>
+    </div>
+</main>
+
+<script>
+    // ── State ────────────────────────────────────────────────────
+    let ws = null;
+    let eventCount = 0;
+    let processedCount = 0;
+    let dlqCount = 0;
+    let retryCount = 0;
+    let globalMean = null;
+    let globalMin = null;
+    let globalMax = null;
+    let globalN = 0;
+    const feedEl = document.getElementById('feed-container');
+    let feedHasContent = false;
+
+    // ── WebSocket ────────────────────────────────────────────────
+    function connectWebSocket() {
+        const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${protocol}//${location.host}/ws`);
+
+        ws.onopen = () => {
+            document.getElementById('ws-status').classList.add('connected');
+            document.getElementById('ws-label').textContent = 'Connected';
+        };
+
+        ws.onclose = () => {
+            document.getElementById('ws-status').classList.remove('connected');
+            document.getElementById('ws-label').textContent = 'Disconnected';
+            setTimeout(connectWebSocket, 3000);
+        };
+
+        ws.onerror = () => ws.close();
+
+        ws.onmessage = (e) => {
+            try {
+                const event = JSON.parse(e.data);
+                handleEvent(event);
+            } catch (err) {
+                console.error('Failed to parse event:', err);
+            }
+        };
+    }
+
+    // ── Event handler ────────────────────────────────────────────
+    function handleEvent(event) {
+        eventCount++;
+
+        // Clear empty state on first event
+        if (!feedHasContent) {
+            feedEl.innerHTML = '';
+            feedHasContent = true;
+        }
+
+        // Update counters
+        if (event.type === 'ok') {
+            processedCount++;
+            if (event.global_mean !== undefined) {
+                globalMean = event.global_mean;
+                globalN = event.global_count || globalN + 1;
+            }
+            if (event.price !== undefined) {
+                if (globalMin === null || event.price < globalMin) globalMin = event.price;
+                if (globalMax === null || event.price > globalMax) globalMax = event.price;
+            }
+        } else if (event.type === 'dlq') {
+            dlqCount++;
+        } else if (event.type === 'retry') {
+            retryCount++;
+        }
+
+        // Update stat displays
+        document.getElementById('stat-processed').textContent = processedCount;
+        document.getElementById('stat-dlq').textContent = dlqCount;
+        document.getElementById('stat-retries').textContent = retryCount;
+        document.getElementById('feed-count').textContent = `${eventCount} events`;
+        document.getElementById('pipeline-consumed').textContent = processedCount + dlqCount;
+        document.getElementById('pipeline-agg').textContent = processedCount;
+        document.getElementById('pipeline-dlq').textContent = dlqCount;
+
+        if (globalMean !== null) {
+            document.getElementById('stat-mean').textContent = '$' + globalMean.toFixed(2);
+            if (globalMin !== null && globalMax !== null) {
+                document.getElementById('stat-range').textContent =
+                    `min $${globalMin.toFixed(2)} · max $${globalMax.toFixed(2)} · n=${globalN}`;
+            }
+        }
+
+        // Add feed item
+        addFeedItem(event);
+    }
+
+    function addFeedItem(event) {
+        const item = document.createElement('div');
+        item.className = 'feed-item';
+
+        let iconClass, iconText, mainText, detailText;
+
+        switch (event.type) {
+            case 'ok':
+                iconClass = 'ok'; iconText = '✓';
+                mainText = `${event.product || '?'} — $${(event.price || 0).toFixed(2)}`;
+                detailText = `key=${(event.key || '').substring(0, 12)}… avg=$${(event.global_mean || 0).toFixed(2)} n=${event.global_count || ''}`;
+                break;
+            case 'retry':
+                iconClass = 'retry'; iconText = '⟳';
+                mainText = `Retry ${event.attempt || '?'}/${event.max_retries || '?'}`;
+                detailText = `key=${(event.key || '').substring(0, 12)}… sleep=${(event.delay || 0).toFixed(2)}s — ${event.error || ''}`;
+                break;
+            case 'dlq':
+                iconClass = 'dlq'; iconText = '✗';
+                mainText = `→ DLQ (${event.stage || '?'})`;
+                detailText = `key=${(event.key || '').substring(0, 12)}… attempts=${event.attempts || 1} — ${event.error || ''}`;
+                break;
+            default:
+                iconClass = 'ok'; iconText = '?';
+                mainText = event.type || 'unknown';
+                detailText = JSON.stringify(event).substring(0, 100);
+        }
+
+        const timeStr = event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : '';
+
+        item.innerHTML = `
+            <div class="feed-icon ${iconClass}">${iconText}</div>
+            <div class="feed-content">
+                <div class="feed-main">${mainText}</div>
+                <div class="feed-detail">${detailText}</div>
+            </div>
+            <span class="feed-time">${timeStr}</span>
+        `;
+
+        // Prepend (newest first)
+        feedEl.insertBefore(item, feedEl.firstChild);
+
+        // Limit visible items
+        while (feedEl.children.length > 200) {
+            feedEl.removeChild(feedEl.lastChild);
+        }
+    }
+
+    // ── REST API fetchers ────────────────────────────────────────
+    async function fetchTopics() {
+        try {
+            const res = await fetch('/api/topics');
+            const data = await res.json();
+
+            if (data.orders) {
+                document.getElementById('pipeline-topic').textContent = data.orders.messages ?? '—';
+                document.getElementById('pipeline-produced').textContent = data.orders.messages ?? '—';
+            }
+            if (data['orders.DLQ']) {
+                document.getElementById('pipeline-dlq').textContent = data['orders.DLQ'].messages ?? '—';
+            }
+        } catch (err) {
+            console.error('Failed to fetch topics:', err);
+        }
+    }
+
+    async function fetchLag() {
+        try {
+            const res = await fetch('/api/lag');
+            const data = await res.json();
+
+            const container = document.getElementById('lag-container');
+            const totalBadge = document.getElementById('lag-total');
+
+            if (data.error) {
+                totalBadge.textContent = 'lag: error';
+                return;
+            }
+
+            totalBadge.textContent = `lag: ${data.total_lag}`;
+
+            if (data.partitions && data.partitions.length > 0) {
+                let html = '';
+                const maxEnd = Math.max(...data.partitions.map(p => p.end || 1), 1);
+
+                data.partitions.forEach(p => {
+                    const pct = maxEnd > 0 ? Math.min(100, (p.committed / maxEnd) * 100) : 0;
+                    html += `
+                        <div class="lag-bar-container">
+                            <div class="lag-bar-label">
+                                <span>P${p.partition}</span>
+                                <span>${p.committed} / ${p.end} (lag: ${p.lag})</span>
+                            </div>
+                            <div class="lag-bar-bg">
+                                <div class="lag-bar-fill" style="width: ${pct}%"></div>
+                            </div>
+                        </div>
+                    `;
+                });
+                container.innerHTML = html;
+            }
+        } catch (err) {
+            console.error('Failed to fetch lag:', err);
+        }
+    }
+
+    async function fetchStats() {
+        try {
+            const res = await fetch('/api/stats');
+            const data = await res.json();
+
+            const container = document.getElementById('agg-container');
+
+            if (data.status === 'no_consumer') {
+                container.innerHTML = `<div class="empty-state"><div class="empty-icon">📈</div><p>${data.message}</p></div>`;
+                return;
+            }
+
+            if (data.global) {
+                globalMean = data.global.mean;
+                globalN = data.global.count;
+                if (data.global.mean !== null) {
+                    document.getElementById('stat-mean').textContent = '$' + data.global.mean.toFixed(2);
+                }
+            }
+
+            let html = '<table class="agg-table"><thead><tr>';
+            html += '<th>Product</th><th>Count</th><th>Mean</th><th>Min</th><th>Max</th>';
+            html += '</tr></thead><tbody>';
+
+            if (data.global) {
+                html += `<tr class="global-row">
+                    <td>⚡ GLOBAL</td>
+                    <td>${data.global.count}</td>
+                    <td>$${(data.global.mean || 0).toFixed(4)}</td>
+                    <td>$${(data.global.min || 0).toFixed(4)}</td>
+                    <td>$${(data.global.max || 0).toFixed(4)}</td>
+                </tr>`;
+            }
+
+            if (data.by_product) {
+                for (const [product, stats] of Object.entries(data.by_product)) {
+                    html += `<tr>
+                        <td>${product}</td>
+                        <td>${stats.count}</td>
+                        <td>$${(stats.mean || 0).toFixed(4)}</td>
+                        <td>$${(stats.min || 0).toFixed(4)}</td>
+                        <td>$${(stats.max || 0).toFixed(4)}</td>
+                    </tr>`;
+                }
+            }
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        } catch (err) {
+            console.error('Failed to fetch stats:', err);
+        }
+    }
+
+    async function fetchDLQ() {
+        const container = document.getElementById('dlq-container');
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">⏳</div><p>Loading DLQ records…</p></div>';
+
+        try {
+            const res = await fetch('/api/dlq');
+            const data = await res.json();
+
+            if (data.error) {
+                container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>${data.error}</p></div>`;
+                return;
+            }
+
+            if (!data.records || data.records.length === 0) {
+                container.innerHTML = '<div class="empty-state"><div class="empty-icon">✨</div><p>No records in the DLQ. Everything is healthy!</p></div>';
+                return;
+            }
+
+            let html = '';
+            data.records.forEach((rec, i) => {
+                const h = rec.headers || {};
+                html += `
+                    <div class="dlq-record">
+                        <div class="dlq-record-header">
+                            <span class="dlq-record-id">#${i + 1} — ${rec.key}</span>
+                            <span class="dlq-stage">${h['x-failure-stage'] || '?'}</span>
+                        </div>
+                        <dl class="dlq-detail">
+                            <dt>Error type</dt><dd>${h['x-error-type'] || '—'}</dd>
+                            <dt>Error message</dt><dd>${h['x-error-message'] || '—'}</dd>
+                            <dt>Attempts</dt><dd>${h['x-attempts'] || '—'}</dd>
+                            <dt>Failed at</dt><dd>${h['x-failed-at'] || '—'}</dd>
+                            <dt>Original topic</dt><dd>${h['x-original-topic'] || '—'}:${h['x-original-partition'] || '?'}@${h['x-original-offset'] || '?'}</dd>
+                            <dt>Payload</dt><dd>${rec.payload ? JSON.stringify(rec.payload) : '<raw bytes>'}</dd>
+                        </dl>
+                    </div>
+                `;
+            });
+
+            container.innerHTML = html;
+        } catch (err) {
+            container.innerHTML = `<div class="empty-state"><div class="empty-icon">⚠️</div><p>Failed to load: ${err.message}</p></div>`;
+        }
+    }
+
+    // ── Refresh all ──────────────────────────────────────────────
+    function refreshAll() {
+        fetchTopics();
+        fetchLag();
+        fetchStats();
+    }
+
+    // ── Init ─────────────────────────────────────────────────────
+    connectWebSocket();
+    refreshAll();
+    setInterval(refreshAll, 5000);
+</script>
+
+</body>
+</html>

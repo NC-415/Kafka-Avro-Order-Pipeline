@@ -75,8 +75,6 @@ def producer_conf() -> dict:
         "bootstrap.servers": KAFKA_BOOTSTRAP,
         "acks": "all",
         "enable.idempotence": True,
-        # Deliver confirmation callbacks on every produce() call.
-        "on_delivery": None,          # overridden per-call where needed
     }
 
 

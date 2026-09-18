@@ -1,4 +1,4 @@
-﻿# Kafka + Avro Order Pipeline — Design & Implementation Plan
+# Kafka + Avro Order Pipeline — Design & Implementation Plan
 
 Assignment: build a Kafka system that produces and consumes **order messages** using
 **Avro serialization**, with **real-time aggregation (running average of prices)**,
@@ -21,7 +21,7 @@ what the decision costs, and how it will be demonstrated and defended.
 | Retry logic | Exponential backoff with full jitter, bounded attempt budget, only for retryable failures |
 | Dead Letter Queue | Separate `orders.DLQ` topic, original bytes preserved, failure context in record headers |
 | Live demonstration | Fault injection flags on the producer + a DLQ inspector tool + Kafka UI |
-| Git repository | Structure in §3, `.gitignore`, reproducible `docker compose` stack |
+| Git repository | Structure in §3, `.gitignore`, native Windows batch scripts |
 
 **Explicit non-goals** (state these up front rather than be caught by them)
 
@@ -67,7 +67,9 @@ floating point from the money path entirely.
 
 ```
 kafka-orders-avro/
-├── docker-compose.yml        Kafka (KRaft) + Schema Registry + Kafka UI + topic init
+├── start-kafka.bat           Starts Kafka (KRaft mode) and creates topics
+├── start-schema-registry.bat Starts Confluent Schema Registry
+├── stop-all.bat              Stops Kafka and Schema Registry
 ├── Makefile                  every command used in the live demo
 ├── requirements.txt
 ├── .env.example              all tunables, documented
@@ -331,18 +333,57 @@ product.
 
 ## 10. Live demonstration runbook
 
-Four terminals. Total run time ≈ 3 minutes.
+This system runs natively on Windows without Docker. You will need multiple terminal windows (e.g., PowerShell or Command Prompt). Total run time ≈ 3 minutes.
 
-| # | Command | What to point at |
-|---|---|---|
-| 0 | `make up` | KRaft broker, Schema Registry, topics created with explicit partitions |
-| 1 | `make schema` | subject `orders-value` registered; show the schema JSON |
-| 2 | `make consumer` | idle, subscribed, printing its retry policy |
-| 3 | `make demo` | 40 records at 2/s with 12 % business-invalid and 8 % poison |
-| 4 | watch terminal 2 | `ok …` lines with the running average moving; `retry 1/3 … sleeping 0.87s` lines; `--> DLQ` lines |
-| 5 | `Ctrl-C` the consumer | final aggregation table + JSON summary |
-| 6 | `make dlq` | every parked record, its stage, attempt count, error, and decoded payload |
-| 7 | http://localhost:8080 | `orders` vs `orders.DLQ` message counts, consumer-group lag at 0 |
+### Step 1: Start Infrastructure
+Open **Terminal 1** and start Kafka:
+```cmd
+.\start-kafka.bat
+```
+*(Wait until you see "Topics created: orders, orders.DLQ")*
+
+Open **Terminal 2** and start Schema Registry:
+```cmd
+.\start-schema-registry.bat
+```
+*(Wait until you see "Starting Schema Registry on http://localhost:8081")*
+
+### Step 2: Register Schema & Start Dashboard
+Open **Terminal 3** and run:
+```cmd
+python register-schema.py
+.\run-dashboard.bat
+```
+Then, open your web browser to **http://localhost:8080** to view the real-time monitoring dashboard.
+
+### Step 3: Start Consumer
+Open **Terminal 4** and start the consumer:
+```cmd
+.\run-consumer.bat
+```
+*(It will sit idle, waiting for messages)*
+
+### Step 4: Run Producer (Fault Injection Demo)
+Open **Terminal 5** and run the producer with a fixed seed and fault injection:
+```cmd
+.\run-demo.bat
+```
+*(This produces 40 records: ~12% business-invalid, ~8% poison pills. It also simulates transient downstream failures causing retries.)*
+
+### Step 5: Observe & Inspect
+1. **Watch the dashboard (http://localhost:8080):** You will see live messages flowing, the real-time aggregation table updating, and DLQ/Retry counts increasing.
+2. **Watch the consumer (Terminal 4):** You will see `[ok]`, `[retry]`, and `[DLQ]` log lines.
+3. **Inspect the Dead Letter Queue (DLQ):** Once finished, in Terminal 5 run:
+   ```cmd
+   make dlq
+   ```
+   *(Or click "Load DLQ Records" in the web dashboard to see exactly why messages failed, along with their headers and decoded payloads).*
+
+### Step 6: Cleanup
+When finished, open a new terminal or press `Ctrl+C` in Terminal 3 and run:
+```cmd
+.\stop-all.bat
+```
 
 `--seed 42` makes the demo reproducible, so the same failure pattern appears every
 run — no live-demo roulette.
@@ -396,7 +437,7 @@ Items 1–4 are the ones most likely to be asked about.
 ## 13. Submission checklist
 
 - [ ] Repo initialised, meaningful commit history (not one "final" commit)
-- [ ] `docker compose up` works from a clean clone
+- [ ] `start-kafka.bat` and `start-schema-registry.bat` work on a native Windows machine
 - [ ] `README.md` (this file) committed
 - [ ] `schemas/order.avsc` matches the brief field-for-field
 - [ ] Demo runbook rehearsed once end-to-end with `--seed 42`
