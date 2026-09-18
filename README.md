@@ -417,5 +417,6 @@ Items 1–4 are the ones most likely to be asked about.
 - [AWS Architecture Blog — Exponential Backoff and Jitter](https://aws.amazon.com/blogs/architecture/exponential-backoff-and-jitter/)
 - [Uber Engineering — Reliable Reprocessing and Dead Letter Queues](https://www.uber.com/en-US/blog/reliable-reprocessing/)
 - [Welford, B. P. (1962), *Technometrics* 4(3), 419–420](https://doi.org/10.1080/00401706.1962.10490022)
-#   K a f k a - A v r o - O r d e r - P i p e l i n e  
+#   K a f k a - A v r o - O r d e r - P i p e l i n e 
+ 
  
